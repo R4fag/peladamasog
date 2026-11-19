@@ -132,6 +132,10 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .caixa input{width:100%}
 .erro{margin:0;color:var(--danger);font-weight:600}
 .acoes{display:flex;gap:10px;justify-content:flex-end}
+.hist{padding:0;margin:10px 0 0}
+.hist li{justify-content:space-between;background:var(--input);border-radius:8px;padding:8px 12px}
+.ro #encerraPelada,.ro #gr2 .btn{display:none!important}
+#gr2{margin-top:18px}
 </style>
 </head>
 <body>
@@ -141,6 +145,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
     <button type="button" data-view="times" aria-current="page">Times</button>
     <button type="button" data-view="jogos">Jogos</button>
     <button type="button" data-view="ranking">Ranking</button>
+    <button type="button" data-view="geral">Geral</button>
   </nav>
   <button type="button" class="lock" id="trava">🔒 Editar</button>
 </header>
@@ -172,11 +177,23 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
     <div class="top">
       <div>
         <h1>Ranking</h1>
-        <p class="sub">Só aparece quem já pontuou.</p>
+        <p class="sub">Só aparece quem já pontuou. No fim da pelada, toque em Encerrar pelada para salvar no Geral.</p>
       </div>
+      <button type="button" class="btn main" id="encerraPelada">Encerrar pelada</button>
     </div>
+    <p class="aviso" id="msgEncerra" hidden></p>
     <div class="grid" id="rk1"></div>
     <div id="rk2"></div>
+  </div>
+  <div id="v-geral" hidden>
+    <div class="top">
+      <div>
+        <h1>Geral</h1>
+        <p class="sub">Todas as peladas já encerradas. A média divide os pontos pelas peladas jogadas.</p>
+      </div>
+    </div>
+    <div id="gr1"></div>
+    <div id="gr2"></div>
   </div>
 </main>
 <div class="modal" id="modal" hidden>
@@ -500,25 +517,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
     return s;
   }
   function renderRanking(){
-    var st={};
-    function p(n){ return st[n]||(st[n]={n:n,g:0,a:0,v:0,c:0,o:0}); }
-    data.jogos.forEach(function(j){
-      j.gols.forEach(function(g){
-        if(g.s!=="Gol contra") p(g.s).g++;
-        else if(g.c) p(g.c).o++;
-        if(g.a&&g.a!==g.s&&g.s!=="Gol contra") p(g.a).a++;
-      });
-      if(!j.enc) return;
-      var sc=placar(j);
-      [[j.a,j.ga,sc[0],sc[1],sc[0]>sc[1]||(sc[0]===sc[1]&&j.pen==="a")],[j.b,j.gb,sc[1],sc[0],sc[1]>sc[0]||(sc[0]===sc[1]&&j.pen==="b")]].forEach(function(l){
-        if(l[4]){
-          var elenco=(data[l[0]]||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
-          if(l[1]&&elenco.indexOf(l[1])<0) elenco.push(l[1]);
-          elenco.forEach(function(n){ p(n).v++; });
-        }
-        if(l[3]===0&&l[1]) p(l[1]).c++;
-      });
-    });
+    var st=estatisticas({t1:data.t1,t2:data.t2,t3:data.t3},data.jogos);
     var lista=Object.keys(st).map(function(k){return st[k];});
     var gl=function(r){return r.g;}, as=function(r){return r.a;}, nm=function(r){return r.n;};
     var pt=function(r){return r.g*8+r.a*5+r.v+r.c*5-r.o*3;};
@@ -561,7 +560,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
     jaCarregou=true;
     try{ localStorage.setItem(KEY,JSON.stringify(data)); }catch(e){}
     document.querySelectorAll("input[data-g]").forEach(function(i){ i.value=val({id:i.dataset.g},+i.dataset.i); });
-    refreshAll(); renderJogos(); renderRanking();
+    refreshAll(); renderJogos(); renderRanking(); renderGeral();
     aplicaRO();
   }
   /* ---------- Servidor e senha ---------- */
@@ -644,6 +643,128 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   setInterval(puxar,5000);
   document.addEventListener("visibilitychange",function(){ if(!document.hidden) puxar(); });
 
+  /* ---------- Peladas salvas e Geral ---------- */
+  function pontosDe(r){ return r.g*8+r.a*5+r.v+r.c*5-r.o*3; }
+  function estatisticas(rost,jogos){
+    var st=Object.create(null);
+    function p(n){ return st[n]||(st[n]={n:n,g:0,a:0,v:0,c:0,o:0}); }
+    (jogos||[]).forEach(function(j){
+      (j.gols||[]).forEach(function(g){
+        if(g.s!=="Gol contra") p(g.s).g++;
+        else if(g.c) p(g.c).o++;
+        if(g.a&&g.a!==g.s&&g.s!=="Gol contra") p(g.a).a++;
+      });
+      if(!j.enc) return;
+      var sc=placar(j);
+      [[j.a,j.ga,sc[0],sc[1],sc[0]>sc[1]||(sc[0]===sc[1]&&j.pen==="a")],[j.b,j.gb,sc[1],sc[0],sc[1]>sc[0]||(sc[0]===sc[1]&&j.pen==="b")]].forEach(function(l){
+        if(l[4]){
+          var elenco=((rost&&rost[l[0]])||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
+          if(l[1]&&elenco.indexOf(l[1])<0) elenco.push(l[1]);
+          elenco.forEach(function(n){ p(n).v++; });
+        }
+        if(l[3]===0&&l[1]) p(l[1]).c++;
+      });
+    });
+    return st;
+  }
+  function chave(n){ return n.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
+  function dois(n){ return (n<10?"0":"")+n; }
+  function hoje(){ var d=new Date(); return d.getFullYear()+"-"+dois(d.getMonth()+1)+"-"+dois(d.getDate()); }
+  function dataBR(iso){ var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||""); return m?m[3]+"/"+m[2]+"/"+m[1]:"sem data"; }
+  function jogadoresDe(pe){
+    var jogou=Object.create(null);
+    Object.keys(pe.times||{}).forEach(function(k){
+      (pe.times[k]||[]).forEach(function(n){ n=(n||"").trim(); if(n&&!jogou[chave(n)]) jogou[chave(n)]=n; });
+    });
+    return jogou;
+  }
+  function renderGeral(){
+    var pel=Array.isArray(data.peladas)?data.peladas:[];
+    var tot=Object.create(null);
+    pel.forEach(function(pe){
+      var st=estatisticas(pe.times,pe.jogos);
+      var jogou=jogadoresDe(pe);
+      var porChave=Object.create(null);
+      Object.keys(st).forEach(function(nome){
+        var k=chave(nome), r=st[nome];
+        var x=porChave[k]||(porChave[k]={g:0,a:0,v:0,c:0,o:0});
+        x.g+=r.g; x.a+=r.a; x.v+=r.v; x.c+=r.c; x.o+=r.o;
+        if(!jogou[k]) jogou[k]=nome;
+      });
+      Object.keys(jogou).forEach(function(k){
+        var t=tot[k]||(tot[k]={n:jogou[k],g:0,a:0,v:0,c:0,o:0,p:0});
+        t.p++;
+        var x=porChave[k];
+        if(x){ t.g+=x.g; t.a+=x.a; t.v+=x.v; t.c+=x.c; t.o+=x.o; }
+      });
+    });
+    var lista=Object.keys(tot).map(function(k){
+      var t=tot[k]; t.pts=pontosDe(t); t.med=t.p?t.pts/t.p:0; return t;
+    }).filter(function(t){ return t.pts!==0; }).sort(function(x,y){
+      return y.med-x.med||y.pts-x.pts||x.n.localeCompare(y.n);
+    });
+    var f=function(k){ return function(r){ return r[k]; }; };
+    var med=function(r){ return r.med.toFixed(1).replace(".",","); };
+    var nota="Soma os pontos de todas as peladas encerradas e divide pelo número de peladas que cada jogador jogou. Joga a pelada quem estava em algum time ou entre os goleiros, ou fez algo nos jogos. As regras de pontos são as mesmas do Ranking: gol 8, assistência 5, vitória 1, goleiro sem sofrer gol 5 e gol contra menos 3.";
+    var g1=$("gr1"); g1.innerHTML="";
+    g1.appendChild(tabela("MVPs de todas as peladas",nota,lista,[["Jogador",f("n")],["Média",med],["Pontos",f("pts")],["Peladas",f("p")],["Gols",f("g")],["Assist.",f("a")],["Vitórias",f("v")],["Sem sofrer gol",f("c")],["Gols contra",f("o")]],"Ainda não há peladas salvas. Quando terminar uma, toque em Encerrar pelada na aba Ranking."));
+
+    var g2=$("gr2"); g2.innerHTML="";
+    var sec=el("section","panel rk");
+    sec.appendChild(el("h2","","Peladas salvas"));
+    if(!pel.length){ sec.appendChild(el("p","empty","Nenhuma pelada salva ainda.")); }
+    else {
+      var ul=el("ul","hist");
+      pel.slice().reverse().forEach(function(pe,pos){
+        var idx=pel.length-1-pos;
+        var nj=Object.keys(jogadoresDe(pe)).length, ng=(pe.jogos||[]).length;
+        var li=el("li","",null);
+        li.appendChild(el("span","",dataBR(pe.data)+": "+ng+(ng===1?" jogo, ":" jogos, ")+nj+(nj===1?" jogador":" jogadores")));
+        var b=el("button","btn del","Remover"); b.type="button";
+        b.addEventListener("click",function(){
+          if(b.dataset.ok!=="1"){
+            b.dataset.ok="1"; b.textContent="Toque de novo para remover";
+            setTimeout(function(){ b.dataset.ok=""; b.textContent="Remover"; },4000);
+            return;
+          }
+          data.peladas.splice(idx,1); save(); renderGeral();
+        });
+        li.appendChild(b); ul.appendChild(li);
+      });
+      sec.appendChild(ul);
+    }
+    g2.appendChild(sec);
+  }
+  var btnE=$("encerraPelada"), msgE=$("msgEncerra"), tmrE=null;
+  function msgEncerra(t){ msgE.textContent=t||""; msgE.hidden=!t; }
+  function reiniciaBtnE(){ btnE.dataset.ok=""; btnE.textContent="Encerrar pelada"; }
+  btnE.addEventListener("click",function(){
+    var jogos=data.jogos||[];
+    if(!jogos.length){ msgEncerra("Não há jogos para salvar. Lance os jogos da pelada na aba Jogos."); return; }
+    var abertos=[];
+    jogos.forEach(function(j,i){ if(!j.enc) abertos.push(i+1); });
+    if(abertos.length){ msgEncerra("Encerre antes o jogo "+abertos.join(", ")+" na aba Jogos, para as vitórias contarem."); return; }
+    if(btnE.dataset.ok!=="1"){
+      btnE.dataset.ok="1"; btnE.textContent="Toque de novo para salvar";
+      msgEncerra("A pelada será salva no Geral e uma nova pelada começa, com times e jogos vazios.");
+      clearTimeout(tmrE); tmrE=setTimeout(function(){ reiniciaBtnE(); msgEncerra(""); },6000);
+      return;
+    }
+    clearTimeout(tmrE); reiniciaBtnE();
+    var pe={data:hoje(),times:{},jogos:JSON.parse(JSON.stringify(jogos))};
+    ["t1","t2","t3","gk"].forEach(function(k){
+      pe.times[k]=(data[k]||[]).map(function(n){ return (n||"").trim(); }).filter(Boolean);
+    });
+    data.peladas=(Array.isArray(data.peladas)?data.peladas:[]).concat([pe]);
+    data.jogos=[]; data.sel=-1;
+    ["t1","t2","t3","gk"].forEach(function(k){ data[k]=[]; });
+    save();
+    document.querySelectorAll("input[data-g]").forEach(function(i){ i.value=""; });
+    refreshAll(); renderJogos(); renderRanking(); renderGeral();
+    msgEncerra("Pelada salva no Geral. Uma nova pelada foi iniciada.");
+    clearTimeout(tmrE); tmrE=setTimeout(function(){ msgEncerra(""); },6000);
+  });
+
   /* ---------- Navegação ---------- */
   document.querySelectorAll("nav button[data-view]").forEach(function(b){
     b.addEventListener("click",function(){
@@ -653,8 +774,10 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
       $("v-times").hidden=b.dataset.view!=="times";
       $("v-jogos").hidden=b.dataset.view!=="jogos";
       $("v-ranking").hidden=b.dataset.view!=="ranking";
+      $("v-geral").hidden=b.dataset.view!=="geral";
       if(b.dataset.view==="jogos") renderJogos();
       if(b.dataset.view==="ranking") renderRanking();
+      if(b.dataset.view==="geral") renderGeral();
       window.scrollTo(0,0);
     });
   });
