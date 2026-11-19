@@ -125,6 +125,13 @@ th.num,td.num{text-align:right}
 tbody tr:first-child td{font-weight:800}
 html{overscroll-behavior-y:none;-webkit-text-size-adjust:100%}
 button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.lock{margin-left:auto;font:inherit;font-weight:600;color:inherit;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:7px 14px;cursor:pointer;white-space:nowrap}
+.modal{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:rgba(0,0,0,.55);padding:20px}
+.caixa{background:var(--surface);color:var(--ink);border-radius:14px;border-top:8px solid var(--t3);padding:20px;width:100%;max-width:340px;display:grid;gap:12px}
+.caixa h2{margin:0;font-size:1.15rem;font-weight:800}
+.caixa input{width:100%}
+.erro{margin:0;color:var(--danger);font-weight:600}
+.acoes{display:flex;gap:10px;justify-content:flex-end}
 </style>
 </head>
 <body>
@@ -135,6 +142,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
     <button type="button" data-view="jogos">Jogos</button>
     <button type="button" data-view="ranking">Ranking</button>
   </nav>
+  <button type="button" class="lock" id="trava">🔒 Editar</button>
 </header>
 <main>
   <div class="aviso" id="aviso" hidden></div>
@@ -171,6 +179,17 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
     <div id="rk2"></div>
   </div>
 </main>
+<div class="modal" id="modal" hidden>
+  <form class="caixa" id="formSenha" autocomplete="off">
+    <h2>Digite a senha</h2>
+    <input type="password" id="senha" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Senha" aria-label="Senha">
+    <p class="erro" id="erroSenha" hidden>Senha incorreta.</p>
+    <div class="acoes">
+      <button type="button" class="btn" id="cancelaSenha">Cancelar</button>
+      <button type="submit" class="btn main">Entrar</button>
+    </div>
+  </form>
+</div>
 <script>
 (function(){
   var KEY="pelada:v1";
@@ -185,20 +204,26 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   try{ data=JSON.parse(localStorage.getItem(KEY)||"{}")||{}; }catch(e){ data={}; }
   if(!Array.isArray(data.jogos)) data.jogos=[];
   if(typeof data.sel!=="number") data.sel=data.jogos.length-1;
-  var db=null, docRef=null, podeEscrever=true, pendente=false, enviando=false, timer=null, versao=0, jaCarregou=false;
+  var podeEscrever=false, pendente=false, enviando=false, timer=null, versao=0, jaCarregou=false;
+  var senhaSalva="", versaoServidor=0, semServidor=false, CHAVE="pelada:editor";
   function save(){
     try{ localStorage.setItem(KEY,JSON.stringify(data)); }catch(e){}
-    if(db&&podeEscrever){ versao++; pendente=true; clearTimeout(timer); timer=setTimeout(enviar,500); }
+    if(podeEscrever&&senhaSalva){ versao++; pendente=true; clearTimeout(timer); timer=setTimeout(enviar,500); }
   }
   function enviar(){
     if(enviando){ timer=setTimeout(enviar,300); return; }
     var v0=versao; enviando=true;
-    docRef.set(JSON.parse(JSON.stringify(data))).then(function(){
-      enviando=false; if(v0===versao) pendente=false;
-    }).catch(function(e){
-      enviando=false; pendente=false;
-      if(e&&e.code==="invalid_argument"){ podeEscrever=false; aplicaRO(); }
-    });
+    fetch("/api/state",{method:"PUT",headers:{"Content-Type":"application/json","x-senha":senhaSalva},body:JSON.stringify({data:data})})
+    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {st:r.status,j:j}; }); })
+    .then(function(x){
+      enviando=false;
+      if(x.st===401){ pendente=false; bloqueia(); return; }
+      if(x.st>=200&&x.st<300){
+        versaoServidor=x.j.versao||versaoServidor;
+        if(v0===versao) pendente=false;
+        marcaServidor(true);
+      } else { marcaServidor(false); timer=setTimeout(enviar,5000); }
+    }).catch(function(){ enviando=false; marcaServidor(false); timer=setTimeout(enviar,5000); });
   }
   function $(id){ return document.getElementById(id); }
   function team(id){ return teams.filter(function(t){return t.id===id;})[0]; }
@@ -510,7 +535,11 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   function aviso(t){ var a=$("aviso"); a.textContent=t||""; a.hidden=!t; }
   function aplicaRO(){
     document.documentElement.classList.toggle("ro",!podeEscrever);
-    if(!podeEscrever) aviso("Você está só acompanhando: apenas quem criou o site pode lançar jogos e gols.");
+    var msg=[];
+    if(!podeEscrever) msg.push("Modo leitura: toque em Editar e digite a senha para alterar o site.");
+    if(semServidor) msg.push("Sem conexão com o servidor: mostrando os dados salvos neste aparelho.");
+    aviso(msg.join(" "));
+    var tr=$("trava"); if(tr) tr.textContent=podeEscrever?"🔓 Bloquear":"🔒 Editar";
     document.querySelectorAll("#v-times input").forEach(function(i){ i.readOnly=!podeEscrever; });
     if(!podeEscrever) document.querySelectorAll("#v-jogos select").forEach(function(s){ s.disabled=true; });
   }
@@ -535,6 +564,86 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
     refreshAll(); renderJogos(); renderRanking();
     aplicaRO();
   }
+  /* ---------- Servidor e senha ---------- */
+  var servidorVazio=false;
+  function api(metodo,corpo,senha){
+    var h={"Content-Type":"application/json"};
+    if(senha) h["x-senha"]=senha;
+    var url="/api/state"+(metodo==="GET"?"?v="+versaoServidor+"&t="+Date.now():"");
+    return fetch(url,{method:metodo,headers:h,body:corpo?JSON.stringify(corpo):undefined,cache:"no-store"}).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(j){ return {st:r.status,j:j}; });
+    });
+  }
+  function marcaServidor(ok){
+    var mudou=(semServidor===ok);
+    semServidor=!ok;
+    if(mudou) aplicaRO();
+  }
+  function puxar(){
+    if(pendente||enviando||document.hidden) return;
+    api("GET").then(function(x){
+      if(x.st!==200){ marcaServidor(false); return; }
+      marcaServidor(true);
+      var j=x.j;
+      if(j.mudou===false) return;
+      if(!j.data){
+        servidorVazio=true;
+        if(podeEscrever&&temConteudo()) save();
+        return;
+      }
+      servidorVazio=false;
+      versaoServidor=j.versao||0;
+      if(pendente||enviando) return;
+      if(canon(j.data)!==canon(data)) aplicaRemoto(j.data);
+    }).catch(function(){ marcaServidor(false); });
+  }
+  function aplicaModo(){ aplicaRO(); renderJogos(); }
+  function bloqueia(){
+    podeEscrever=false; senhaSalva="";
+    try{ localStorage.removeItem(CHAVE); }catch(e){}
+    aplicaModo();
+  }
+  function abreModal(){
+    $("erroSenha").hidden=true; $("senha").value="";
+    $("modal").hidden=false;
+    setTimeout(function(){ $("senha").focus(); },50);
+  }
+  function fechaModal(){ $("modal").hidden=true; }
+  var guardada="";
+  try{ guardada=localStorage.getItem(CHAVE)||""; }catch(e){}
+  if(guardada){
+    senhaSalva=guardada; podeEscrever=true;
+    api("POST",{acao:"login"},guardada).then(function(x){
+      if(x.st===200&&x.j.ok===false) bloqueia();
+    }).catch(function(){});
+  }
+  aplicaRO();
+  $("trava").addEventListener("click",function(){ if(podeEscrever) bloqueia(); else abreModal(); });
+  $("cancelaSenha").addEventListener("click",fechaModal);
+  $("modal").addEventListener("click",function(e){ if(e.target===$("modal")) fechaModal(); });
+  document.addEventListener("keydown",function(e){ if(e.key==="Escape"&&!$("modal").hidden) fechaModal(); });
+  $("formSenha").addEventListener("submit",function(e){
+    e.preventDefault();
+    var erro=$("erroSenha"), senha=$("senha").value.trim();
+    if(!senha) return;
+    api("POST",{acao:"login"},senha).then(function(x){
+      if(x.st===200&&x.j.ok){
+        senhaSalva=senha; podeEscrever=true;
+        try{ localStorage.setItem(CHAVE,senha); }catch(y){}
+        fechaModal(); aplicaModo();
+        if(servidorVazio&&temConteudo()) save();
+      } else if(x.st===200){
+        erro.textContent="Senha incorreta."; erro.hidden=false;
+        $("senha").value=""; $("senha").focus();
+      } else {
+        erro.textContent="O servidor ainda não está configurado (senha ou banco de dados no Vercel)."; erro.hidden=false;
+      }
+    }).catch(function(){ erro.textContent="Sem conexão com o servidor."; erro.hidden=false; });
+  });
+  puxar();
+  setInterval(puxar,5000);
+  document.addEventListener("visibilitychange",function(){ if(!document.hidden) puxar(); });
+
   /* ---------- Navegação ---------- */
   document.querySelectorAll("nav button[data-view]").forEach(function(b){
     b.addEventListener("click",function(){

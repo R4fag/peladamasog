@@ -1,5 +1,5 @@
-var V = "peladamas-v1";
-var BASE = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-180.png"];
+var V = "peladamas-v7";
+var BASE = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-180.png", "icon-maskable-512.png"];
 
 self.addEventListener("install", function (e) {
   e.waitUntil(
@@ -20,6 +20,7 @@ self.addEventListener("fetch", function (e) {
   if (r.method !== "GET") return;
   var u = new URL(r.url);
   if (u.origin !== location.origin) return;
+  if (u.pathname.indexOf("/api/") === 0) return;
   e.respondWith(
     fetch(r).then(function (res) {
       var cp = res.clone();
